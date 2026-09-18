@@ -9,6 +9,10 @@ interface Props {
   /** 遮蔽诊断结果：存在即表示该规则不可达 */
   shadow?: ShadowReport;
   onChange: (next: Rule) => void;
+  /** 文本框编辑：同一聚焦会话内的连续输入在历史中合并为一步 */
+  onTextChange: (next: Rule) => void;
+  /** 文本框获得焦点时上报字段标识（rule.id:字段名） */
+  onFieldFocus: (fieldKey: string) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
 }
@@ -25,11 +29,27 @@ function fmtPath(template: string): string {
   return t === '' ? '（空，任意路径）' : t;
 }
 
-export function RuleCard({ rule, index, total, shadow, onChange, onMove, onRemove }: Props) {
+export function RuleCard({
+  rule,
+  index,
+  total,
+  shadow,
+  onChange,
+  onTextChange,
+  onFieldFocus,
+  onMove,
+  onRemove,
+}: Props) {
   const set = <K extends keyof Rule>(key: K, value: Rule[K]) =>
     onChange({ ...rule, [key]: value });
   const setAction = (patch: Partial<Rule['action']>) =>
     onChange({ ...rule, action: { ...rule.action, ...patch } });
+  // 文本输入走可合并通道：从获得焦点到失焦的连续输入在历史中算一步
+  const setText = <K extends keyof Rule>(key: K, value: Rule[K]) =>
+    onTextChange({ ...rule, [key]: value });
+  const setActionText = (patch: Partial<Rule['action']>) =>
+    onTextChange({ ...rule, action: { ...rule.action, ...patch } });
+  const focusField = (field: string) => () => onFieldFocus(`${rule.id}:${field}`);
 
   return (
     <div
@@ -41,7 +61,8 @@ export function RuleCard({ rule, index, total, shadow, onChange, onMove, onRemov
           className="rule-name"
           value={rule.name}
           placeholder="规则名称"
-          onChange={(e) => set('name', e.target.value)}
+          onChange={(e) => setText('name', e.target.value)}
+          onFocus={focusField('name')}
         />
         {shadow && <span className="tag tag-shadow">不可达</span>}
         <label className="rule-enable">
@@ -88,7 +109,8 @@ export function RuleCard({ rule, index, total, shadow, onChange, onMove, onRemov
           <input
             value={rule.host}
             placeholder="example.com 或 *.example.com"
-            onChange={(e) => set('host', e.target.value)}
+            onChange={(e) => setText('host', e.target.value)}
+            onFocus={focusField('host')}
           />
         </label>
         <label>
@@ -96,7 +118,8 @@ export function RuleCard({ rule, index, total, shadow, onChange, onMove, onRemov
           <input
             value={rule.pathTemplate}
             placeholder="/users/:id（留空或 * 匹配任意）"
-            onChange={(e) => set('pathTemplate', e.target.value)}
+            onChange={(e) => setText('pathTemplate', e.target.value)}
+            onFocus={focusField('pathTemplate')}
           />
         </label>
         <label>
@@ -120,7 +143,8 @@ export function RuleCard({ rule, index, total, shadow, onChange, onMove, onRemov
             <input
               value={rule.action.target}
               placeholder="/new/path/:id 或 https://other.com/:id"
-              onChange={(e) => setAction({ target: e.target.value })}
+              onChange={(e) => setActionText({ target: e.target.value })}
+              onFocus={focusField('target')}
             />
           </label>
         )}

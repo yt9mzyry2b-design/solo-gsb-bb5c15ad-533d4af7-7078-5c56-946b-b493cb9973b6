@@ -8,10 +8,28 @@ import { RuleCard } from './RuleCard';
 interface Props {
   rules: Rule[];
   onRulesChange: (rules: Rule[]) => void;
+  /** 文本框编辑专用通道：同一聚焦会话内的连续输入在历史中合并为一步 */
+  onTextChange: (rules: Rule[]) => void;
+  /** 文本框获得焦点时上报字段标识，开启一次可合并的编辑会话 */
+  onFieldFocus: (fieldKey: string) => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
   onShare: () => void;
 }
 
-export function RulesPanel({ rules, onRulesChange, onShare }: Props) {
+export function RulesPanel({
+  rules,
+  onRulesChange,
+  onTextChange,
+  onFieldFocus,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
+  onShare,
+}: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
@@ -23,8 +41,12 @@ export function RulesPanel({ rules, onRulesChange, onShare }: Props) {
     return map;
   }, [rules]);
 
-  const update = (i: number, next: Rule) =>
-    onRulesChange(rules.map((r, j) => (j === i ? next : r)));
+  const update = (i: number, next: Rule, textEdit: boolean) => {
+    const nextRules = rules.map((r, j) => (j === i ? next : r));
+    // 文本框输入走可合并通道，其余字段修改（下拉框、开关）是离散步骤
+    if (textEdit) onTextChange(nextRules);
+    else onRulesChange(nextRules);
+  };
 
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir;
@@ -77,6 +99,16 @@ export function RulesPanel({ rules, onRulesChange, onShare }: Props) {
       <div className="panel-title">
         <h2>规则表（按顺序匹配，首条命中生效）</h2>
         <div className="toolbar">
+          <button onClick={onUndo} disabled={!canUndo} title="撤销（Ctrl/Cmd+Z）">
+            ↩ 撤销
+          </button>
+          <button
+            onClick={onRedo}
+            disabled={!canRedo}
+            title="重做（Ctrl/Cmd+Shift+Z）"
+          >
+            ↪ 重做
+          </button>
           <button onClick={add}>＋ 添加规则</button>
           <button onClick={() => fileRef.current?.click()}>导入 JSON</button>
           <button onClick={exportJson} disabled={rules.length === 0}>
@@ -126,7 +158,9 @@ export function RulesPanel({ rules, onRulesChange, onShare }: Props) {
             index={i}
             total={rules.length}
             shadow={shadowMap.get(rule.id)}
-            onChange={(next) => update(i, next)}
+            onChange={(next) => update(i, next, false)}
+            onTextChange={(next) => update(i, next, true)}
+            onFieldFocus={onFieldFocus}
             onMove={(dir) => move(i, dir)}
             onRemove={() => remove(i)}
           />
