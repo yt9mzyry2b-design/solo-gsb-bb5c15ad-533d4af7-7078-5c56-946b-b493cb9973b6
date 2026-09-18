@@ -104,6 +104,13 @@ code,
   gap: 8px;
 }
 
+.toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 2px;
+  background: var(--border);
+}
+
 button {
   background: var(--panel-2);
   color: var(--text);

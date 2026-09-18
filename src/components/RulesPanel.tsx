@@ -4,14 +4,22 @@ import { uid, validateRules } from '../validate';
 import { analyzeShadowing, type ShadowReport } from '../shadow';
 import { SAMPLE_RULES } from '../samples';
 import { RuleCard } from './RuleCard';
+import type { RuleHistoryApi } from '../useRuleHistory';
 
 interface Props {
-  rules: Rule[];
-  onRulesChange: (rules: Rule[]) => void;
+  history: RuleHistoryApi;
   onShare: () => void;
 }
 
-export function RulesPanel({ rules, onRulesChange, onShare }: Props) {
+/** 文本输入框的合并会话：聚焦开始、连续输入、失焦合并为一步 */
+export interface TextSession<T> {
+  begin: () => void;
+  change: (next: T) => void;
+  end: (next: T) => void;
+}
+
+export function RulesPanel({ history, onShare }: Props) {
+  const { rules, canUndo, canRedo, commit } = history;
   const fileRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
@@ -24,20 +32,20 @@ export function RulesPanel({ rules, onRulesChange, onShare }: Props) {
   }, [rules]);
 
   const update = (i: number, next: Rule) =>
-    onRulesChange(rules.map((r, j) => (j === i ? next : r)));
+    commit(rules.map((r, j) => (j === i ? next : r)));
 
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir;
     if (j < 0 || j >= rules.length) return;
     const next = [...rules];
     [next[i], next[j]] = [next[j], next[i]];
-    onRulesChange(next);
+    commit(next);
   };
 
-  const remove = (i: number) => onRulesChange(rules.filter((_, j) => j !== i));
+  const remove = (i: number) => commit(rules.filter((_, j) => j !== i));
 
   const add = () =>
-    onRulesChange([
+    commit([
       ...rules,
       {
         id: uid(),
@@ -65,31 +73,49 @@ export function RulesPanel({ rules, onRulesChange, onShare }: Props) {
     try {
       const text = await file.text();
       const parsed = validateRules(JSON.parse(text));
-      onRulesChange(parsed);
+      commit(parsed);
       setImportError(null);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
     }
   };
 
+  /** 某条规则的文本输入会话：编辑先落到对应卡片，失焦时合并为一步 */
+  const textSession = (i: number): TextSession<Rule> => ({
+    begin: history.beginSession,
+    change: (next) => history.editSession(rules.map((r, j) => (j === i ? next : r))),
+    end: (next) => history.endSession(rules.map((r, j) => (j === i ? next : r))),
+  });
+
   return (
     <section className="panel">
       <div className="panel-title">
         <h2>规则表（按顺序匹配，首条命中生效）</h2>
         <div className="toolbar">
+          <button onClick={history.undo} disabled={!canUndo} title="撤销（Ctrl/Cmd+Z）">
+            ↶ 撤销
+          </button>
+          <button
+            onClick={history.redo}
+            disabled={!canRedo}
+            title="重做（Ctrl/Cmd+Shift+Z）"
+          >
+            ↷ 重做
+          </button>
+          <span className="toolbar-sep" aria-hidden />
           <button onClick={add}>＋ 添加规则</button>
           <button onClick={() => fileRef.current?.click()}>导入 JSON</button>
           <button onClick={exportJson} disabled={rules.length === 0}>
             导出 JSON
           </button>
           <button onClick={onShare}>加密分享</button>
-          <button onClick={() => onRulesChange(structuredClone(SAMPLE_RULES))}>
+          <button onClick={() => commit(structuredClone(SAMPLE_RULES))}>
             载入示例
           </button>
           <button
             className="danger"
             disabled={rules.length === 0}
-            onClick={() => onRulesChange([])}
+            onClick={() => commit([])}
           >
             清空
           </button>
@@ -126,7 +152,8 @@ export function RulesPanel({ rules, onRulesChange, onShare }: Props) {
             index={i}
             total={rules.length}
             shadow={shadowMap.get(rule.id)}
-            onChange={(next) => update(i, next)}
+            onCommit={(next) => update(i, next)}
+            session={textSession(i)}
             onMove={(dir) => move(i, dir)}
             onRemove={() => remove(i)}
           />

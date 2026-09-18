@@ -1,6 +1,8 @@
+import type { ChangeEvent } from 'react';
 import type { Rule } from '../types';
 import { METHOD_MATCHERS, REDIRECT_STATUSES } from '../types';
 import type { ShadowReport } from '../shadow';
+import type { TextSession } from './RulesPanel';
 
 interface Props {
   rule: Rule;
@@ -8,7 +10,10 @@ interface Props {
   total: number;
   /** 遮蔽诊断结果：存在即表示该规则不可达 */
   shadow?: ShadowReport;
-  onChange: (next: Rule) => void;
+  /** 离散改动（下拉选择、启停等）：立即作为一步进入历史 */
+  onCommit: (next: Rule) => void;
+  /** 文本输入框的聚焦 / 输入 / 失焦：同一次聚焦周期合并为一步 */
+  session: TextSession<Rule>;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
 }
@@ -25,11 +30,29 @@ function fmtPath(template: string): string {
   return t === '' ? '（空，任意路径）' : t;
 }
 
-export function RuleCard({ rule, index, total, shadow, onChange, onMove, onRemove }: Props) {
+export function RuleCard({
+  rule,
+  index,
+  total,
+  shadow,
+  onCommit,
+  session,
+  onMove,
+  onRemove,
+}: Props) {
   const set = <K extends keyof Rule>(key: K, value: Rule[K]) =>
-    onChange({ ...rule, [key]: value });
+    onCommit({ ...rule, [key]: value });
   const setAction = (patch: Partial<Rule['action']>) =>
-    onChange({ ...rule, action: { ...rule.action, ...patch } });
+    onCommit({ ...rule, action: { ...rule.action, ...patch } });
+
+  /** 文本字段（name / host / pathTemplate）的连续输入合并为一步；失焦时 rule 已含最新输入 */
+  const textProps = (key: 'name' | 'host' | 'pathTemplate') => ({
+    value: rule[key],
+    onFocus: session.begin,
+    onChange: (e: ChangeEvent<HTMLInputElement>) =>
+      session.change({ ...rule, [key]: e.target.value }),
+    onBlur: () => session.end(rule),
+  });
 
   return (
     <div
@@ -39,9 +62,8 @@ export function RuleCard({ rule, index, total, shadow, onChange, onMove, onRemov
         <span className="rule-order">#{index + 1}</span>
         <input
           className="rule-name"
-          value={rule.name}
           placeholder="规则名称"
-          onChange={(e) => set('name', e.target.value)}
+          {...textProps('name')}
         />
         {shadow && <span className="tag tag-shadow">不可达</span>}
         <label className="rule-enable">
@@ -86,17 +108,17 @@ export function RuleCard({ rule, index, total, shadow, onChange, onMove, onRemov
         <label>
           主机
           <input
-            value={rule.host}
             placeholder="example.com 或 *.example.com"
-            onChange={(e) => set('host', e.target.value)}
+            spellCheck={false}
+            {...textProps('host')}
           />
         </label>
         <label>
           路径模板
           <input
-            value={rule.pathTemplate}
             placeholder="/users/:id（留空或 * 匹配任意）"
-            onChange={(e) => set('pathTemplate', e.target.value)}
+            spellCheck={false}
+            {...textProps('pathTemplate')}
           />
         </label>
         <label>
@@ -120,7 +142,15 @@ export function RuleCard({ rule, index, total, shadow, onChange, onMove, onRemov
             <input
               value={rule.action.target}
               placeholder="/new/path/:id 或 https://other.com/:id"
-              onChange={(e) => setAction({ target: e.target.value })}
+              spellCheck={false}
+              onFocus={session.begin}
+              onChange={(e) =>
+                session.change({
+                  ...rule,
+                  action: { ...rule.action, target: e.target.value },
+                })
+              }
+              onBlur={() => session.end(rule)}
             />
           </label>
         )}
